@@ -26,6 +26,8 @@ public class PowerOutageNotice {
 
     private String status;
 
+    private Integer affectedOrderCount;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

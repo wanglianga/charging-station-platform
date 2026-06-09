@@ -90,6 +90,8 @@ export interface ChargingOrder {
   startTime?: string
   endTime?: string
   interruptReason?: string
+  linkedOrderId?: number
+  outageNoticeId?: number
   createdAt: string
 }
 
@@ -153,6 +155,7 @@ export interface PowerOutageNotice {
   reason: string
   status: OutageStatus
   affectedOrderIds: number[]
+  affectedOrderCount?: number
 }
 
 export type RefundStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
@@ -194,4 +197,54 @@ export interface OrderStatusChange {
   status: OrderStatus
   time: string
   description: string
+}
+
+export type CompensationDecision = 'PENDING' | 'CONTINUE' | 'REFUND' | 'SWITCH'
+
+export interface InterruptionCompensation {
+  id: number
+  orderId: number
+  userId: number
+  stationId: number
+  pileId: number
+  chargedKwh: number
+  stopReason: string
+  waitingMinutes: number
+  switchablePiles: string
+  decision: CompensationDecision
+  switchTargetPileId?: number
+  switchOrderId?: number
+  createdAt: string
+  decidedAt?: string
+}
+
+export interface SwitchablePile {
+  pileId: number
+  pileCode: string
+  power: number
+  type: PileType
+  status: PileStatus
+}
+
+export interface InterruptionDetail {
+  compensationId: number
+  orderId: number
+  orderNo: string
+  chargedKwh: number
+  electricityFee: number
+  serviceFee: number
+  totalFee: number
+  stopReason: string
+  waitingMinutes: number
+  switchablePiles: SwitchablePile[]
+  decision: CompensationDecision
+}
+
+export interface OutageAffectedOrder {
+  orderId: number
+  orderNo: string
+  userId: number
+  chargedKwh: number
+  totalFee: number
+  status: string
 }

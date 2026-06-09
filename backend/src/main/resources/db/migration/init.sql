@@ -77,6 +77,8 @@ CREATE TABLE IF NOT EXISTS `charging_order` (
   `start_time` DATETIME,
   `end_time` DATETIME,
   `interrupt_reason` VARCHAR(256),
+  `linked_order_id` BIGINT COMMENT '关联/合并订单ID(换桩时关联原订单)',
+  `outage_notice_id` BIGINT COMMENT '关联停电通知ID',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -148,6 +150,7 @@ CREATE TABLE IF NOT EXISTS `power_outage_notice` (
   `end_time` DATETIME NOT NULL,
   `reason` TEXT NOT NULL,
   `status` ENUM('SCHEDULED','ACTIVE','COMPLETED','CANCELLED') NOT NULL DEFAULT 'SCHEDULED',
+  `affected_order_count` INT NOT NULL DEFAULT 0 COMMENT '受影响订单数',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -170,6 +173,28 @@ CREATE TABLE IF NOT EXISTS `refund_request` (
   KEY `idx_order` (`order_id`),
   KEY `idx_user` (`user_id`),
   KEY `idx_status` (`status`)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS `interruption_compensation` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `order_id` BIGINT NOT NULL,
+  `user_id` BIGINT NOT NULL,
+  `station_id` BIGINT NOT NULL,
+  `pile_id` BIGINT NOT NULL,
+  `charged_kwh` DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '中断时已充电量',
+  `stop_reason` VARCHAR(256) NOT NULL COMMENT '停机原因:MODULE_OVER_TEMP/EMERGENCY_STOP',
+  `waiting_minutes` INT NOT NULL DEFAULT 0 COMMENT '车主等待时长(分钟)',
+  `switchable_piles` TEXT COMMENT '可切换桩位ID列表,逗号分隔',
+  `decision` ENUM('PENDING','CONTINUE','REFUND','SWITCH') NOT NULL DEFAULT 'PENDING' COMMENT '车主选择',
+  `switch_target_pile_id` BIGINT COMMENT '换桩目标桩位ID',
+  `switch_order_id` BIGINT COMMENT '换桩后新订单ID',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `decided_at` DATETIME,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_order` (`order_id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_status` (`decision`)
 ) ENGINE=InnoDB;
 
 -- Demo data: Users
@@ -247,3 +272,6 @@ INSERT INTO `power_outage_notice` (`station_id`, `site_owner_id`, `start_time`, 
 -- Demo data: Refund Requests
 INSERT INTO `refund_request` (`order_id`, `user_id`, `amount`, `reason`, `status`, `processed_by`, `created_at`, `processed_at`) VALUES
 (3, 7, 14.08, '充电中断导致未充满，要求全额退款', 'PENDING', NULL, '2026-06-03 12:00:00', NULL);
+
+INSERT INTO `interruption_compensation` (`order_id`, `user_id`, `station_id`, `pile_id`, `charged_kwh`, `stop_reason`, `waiting_minutes`, `switchable_piles`, `decision`, `created_at`) VALUES
+(3, 7, 1, 4, 15.3000, 'MODULE_OVER_TEMP', 25, '1,2', 'PENDING', '2026-06-03 11:45:00');

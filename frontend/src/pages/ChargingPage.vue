@@ -129,11 +129,103 @@
         <el-button v-if="orderStatus !== 'HANDSHAKE'" type="danger" size="large" class="w-full" style="height: 48px; border-radius: 10px" @click="stopCharging">
           停止充电
         </el-button>
+        <el-button v-if="orderStatus === 'CHARGING'" type="warning" size="large" class="w-full mt-2" style="height: 40px; border-radius: 10px" @click="simulateFaultInterrupt">
+          <AlertTriangle class="w-4 h-4 mr-1" />模拟故障中断
+        </el-button>
         <el-button v-else size="large" class="w-full" style="height: 48px; border-radius: 10px" @click="cancelHandshake">
           取消
         </el-button>
       </div>
     </div>
+
+    <el-dialog v-model="showInterruptionDialog" title="充电中断补偿" width="560px" :close-on-click-modal="false" :close-on-press-escape="false">
+      <div v-if="interruptionDetail" class="space-y-4">
+        <div class="p-4 bg-red-50 border border-red-100 rounded-xl">
+          <div class="flex items-center gap-2 mb-2">
+            <AlertTriangle class="w-5 h-5 text-red-600" />
+            <span class="font-semibold text-red-700">充电已中断</span>
+          </div>
+          <div class="text-sm text-red-600">停机原因: {{ interruptionDetail.stopReason }}</div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <div class="text-sm text-gray-500">已充电量</div>
+            <div class="text-lg font-bold text-teal-700">{{ interruptionDetail.chargedKwh?.toFixed(2) || '0.00' }} kWh</div>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <div class="text-sm text-gray-500">当前费用</div>
+            <div class="text-lg font-bold text-amber-600">¥{{ interruptionDetail.totalFee?.toFixed(2) || '0.00' }}</div>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <div class="text-sm text-gray-500">已等时长</div>
+            <div class="text-lg font-bold text-gray-800">{{ interruptionDetail.waitingMinutes || 0 }} 分钟</div>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-lg text-center">
+            <div class="text-sm text-gray-500">电费/服务费</div>
+            <div class="text-sm font-bold text-gray-800">¥{{ interruptionDetail.electricityFee?.toFixed(2) || '0.00' }} / ¥{{ interruptionDetail.serviceFee?.toFixed(2) || '0.00' }}</div>
+          </div>
+        </div>
+
+        <div class="border-t border-gray-100 pt-4">
+          <h4 class="font-semibold text-gray-800 mb-3">请选择处理方式</h4>
+          <div class="space-y-3">
+            <div class="p-3 border-2 rounded-xl cursor-pointer transition-all"
+                 :class="compensationDecision === 'CONTINUE' ? 'border-teal-600 bg-teal-50' : 'border-gray-200 hover:border-teal-300'"
+                 @click="compensationDecision = 'CONTINUE'">
+              <div class="flex items-center gap-2">
+                <RefreshCw class="w-5 h-5 text-teal-600" />
+                <span class="font-medium text-gray-800">继续充电</span>
+              </div>
+              <div class="text-sm text-gray-500 mt-1 ml-7">恢复当前桩位继续充电</div>
+            </div>
+
+            <div class="p-3 border-2 rounded-xl cursor-pointer transition-all"
+                 :class="compensationDecision === 'REFUND' ? 'border-amber-600 bg-amber-50' : 'border-gray-200 hover:border-amber-300'"
+                 @click="compensationDecision = 'REFUND'">
+              <div class="flex items-center gap-2">
+                <RotateCcw class="w-5 h-5 text-amber-600" />
+                <span class="font-medium text-gray-800">申请退款</span>
+              </div>
+              <div class="text-sm text-gray-500 mt-1 ml-7">按实际充电量结算并申请退款</div>
+            </div>
+
+            <div class="p-3 border-2 rounded-xl cursor-pointer transition-all"
+                 :class="compensationDecision === 'SWITCH' ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-blue-300'"
+                 @click="compensationDecision = 'SWITCH'">
+              <div class="flex items-center gap-2">
+                <ArrowRightLeft class="w-5 h-5 text-blue-600" />
+                <span class="font-medium text-gray-800">换桩充电</span>
+              </div>
+              <div class="text-sm text-gray-500 mt-1 ml-7">切换到其他空闲桩位继续充电，原订单和新订单合并结算</div>
+            </div>
+          </div>
+
+          <div v-if="compensationDecision === 'SWITCH' && interruptionDetail.switchablePiles?.length > 0" class="mt-3">
+            <div class="text-sm font-medium text-gray-600 mb-2">选择目标桩位</div>
+            <div class="grid grid-cols-2 gap-2">
+              <div v-for="sp in interruptionDetail.switchablePiles" :key="sp.pileId"
+                   class="p-2 border-2 rounded-lg cursor-pointer text-center transition-all"
+                   :class="selectedSwitchPileId === sp.pileId ? 'border-blue-600 bg-blue-50' : 'border-gray-200 hover:border-blue-300'"
+                   @click="selectedSwitchPileId = sp.pileId">
+                <div class="font-bold text-sm text-gray-800">{{ sp.pileCode }}</div>
+                <div class="text-xs text-gray-500">{{ sp.power }}kW · {{ pileTypeLabel(sp.type) }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="compensationDecision === 'SWITCH' && (!interruptionDetail.switchablePiles || interruptionDetail.switchablePiles.length === 0)" class="mt-3">
+            <el-tag type="warning">当前无可用桩位可切换</el-tag>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showInterruptionDialog = false; chargingStore.endSession(); chargingActive = false; orderStatus = 'PENDING'">稍后处理</el-button>
+        <el-button type="primary" :disabled="!compensationDecision || (compensationDecision === 'SWITCH' && !selectedSwitchPileId)" :loading="compensationSubmitting" @click="submitCompensationDecision(compensationDecision)">
+          确认
+        </el-button>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="showQueueDrawer" title="排队信息" size="480px" @open="loadQueueInfo">
       <div v-if="queueInfoList.length === 0" class="text-center py-8 text-gray-400">暂无排队数据</div>
@@ -179,13 +271,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plug, BatteryCharging, Users } from 'lucide-vue-next'
+import { Plug, BatteryCharging, Users, AlertTriangle, ArrowRightLeft, RotateCcw, RefreshCw } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
-import type { Station, Pile, PileType, PricingRule, QueueInfo, OrderStatus } from '@/types'
+import type { Station, Pile, PileType, PricingRule, QueueInfo, OrderStatus, InterruptionDetail, SwitchablePile } from '@/types'
 import { getStations } from '@/api/station'
 import { getPilesByStation } from '@/api/pile'
-import { startCharging as startChargingApi, stopCharging as stopChargingApi } from '@/api/order'
+import { startCharging as startChargingApi, stopCharging as stopChargingApi, getInterruptionDetail, handleCompensationDecision } from '@/api/order'
 import { useChargingStore } from '@/stores/charging'
 
 const route = useRoute()
@@ -213,6 +305,14 @@ const chargingData = ref({
 })
 
 const statusChanges = ref<{ time: string; label: string; desc: string; type: string }[]>([])
+
+const showInterruptionDialog = ref(false)
+const interruptionDetail = ref<InterruptionDetail | null>(null)
+const compensationSubmitting = ref(false)
+const selectedSwitchPileId = ref<number | undefined>()
+const showOutageWarning = ref(false)
+const outageWarningMsg = ref('')
+const compensationDecision = ref<string>('')
 
 const pricing = ref<PricingRule>({
   id: 1, stationId: 0, peakPrice: 1.2, flatPrice: 0.8, valleyPrice: 0.4,
@@ -460,6 +560,93 @@ function goCharging(stationId: number) {
   showQueueDrawer.value = false
   selectedStationId.value = stationId
   onStationChange()
+}
+
+async function handleFaultInterrupt(reason: string) {
+  if (chargingTimer) {
+    clearInterval(chargingTimer)
+    chargingTimer = null
+  }
+  orderStatus.value = 'FAULT_INTERRUPT' as OrderStatus
+  addStatusChange('INTERRUPTED' as OrderStatus, `充电中断: ${reason}`)
+  chargingStore.updateOrderStatus('INTERRUPTED' as OrderStatus)
+
+  try {
+    const data = await getInterruptionDetail(currentOrderId.value)
+    interruptionDetail.value = data?.data || data
+  } catch {
+    interruptionDetail.value = {
+      compensationId: Date.now(),
+      orderId: currentOrderId.value,
+      orderNo: currentOrderNo.value,
+      chargedKwh: chargingData.value.chargedKwh,
+      electricityFee: chargingData.value.chargedKwh * 0.7,
+      serviceFee: chargingData.value.chargedKwh * 0.1,
+      totalFee: chargingData.value.totalFee,
+      stopReason: reason,
+      waitingMinutes: Math.floor((Date.now() - chargingData.value.startTime) / 60000),
+      switchablePiles: displayPiles.value.filter(p => p.status === 'IDLE' && p.id !== selectedPileId.value).map(p => ({
+        pileId: p.id, pileCode: p.pileCode, power: p.power, type: p.type, status: p.status,
+      })),
+      decision: 'PENDING',
+    }
+  }
+  showInterruptionDialog.value = true
+}
+
+async function submitCompensationDecision(decision: string) {
+  if (!interruptionDetail.value) return
+  compensationSubmitting.value = true
+  try {
+    await handleCompensationDecision({
+      compensationId: interruptionDetail.value.compensationId,
+      decision,
+      switchTargetPileId: decision === 'SWITCH' ? selectedSwitchPileId.value : undefined,
+    })
+    showInterruptionDialog.value = false
+    if (decision === 'CONTINUE') {
+      orderStatus.value = 'CHARGING'
+      chargingStore.updateOrderStatus('CHARGING')
+      startChargingTimer()
+      ElMessage.success('已恢复充电')
+    } else if (decision === 'REFUND') {
+      chargingStore.endSession()
+      chargingActive.value = false
+      orderStatus.value = 'PENDING'
+      ElMessage.success('退款申请已提交')
+    } else if (decision === 'SWITCH') {
+      chargingStore.endSession()
+      chargingActive.value = false
+      orderStatus.value = 'PENDING'
+      ElMessage.success('已切换桩位，请重新开始充电')
+    }
+  } catch {
+    showInterruptionDialog.value = false
+    if (decision === 'CONTINUE') {
+      orderStatus.value = 'CHARGING'
+      chargingStore.updateOrderStatus('CHARGING')
+      startChargingTimer()
+      ElMessage.success('已恢复充电(演示)')
+    } else if (decision === 'REFUND') {
+      chargingStore.endSession()
+      chargingActive.value = false
+      orderStatus.value = 'PENDING'
+      ElMessage.success('退款申请已提交(演示)')
+    } else if (decision === 'SWITCH') {
+      chargingStore.endSession()
+      chargingActive.value = false
+      orderStatus.value = 'PENDING'
+      ElMessage.success('已切换桩位(演示)')
+    }
+  }
+  compensationSubmitting.value = false
+}
+
+function simulateFaultInterrupt() {
+  const reasons = ['MODULE_OVER_TEMP', 'EMERGENCY_STOP']
+  const reason = reasons[Math.floor(Math.random() * reasons.length)]
+  const reasonLabel = reason === 'MODULE_OVER_TEMP' ? '模块过温保护' : '急停触发'
+  handleFaultInterrupt(reasonLabel)
 }
 
 onMounted(async () => {

@@ -28,3 +28,11 @@ export function approveRefund(id: number) {
 export function rejectRefund(id: number) {
   return apiPut(`/refund-requests/${id}/reject`)
 }
+
+export function getInterruptionDetail(orderId: number): Promise<any> {
+  return apiGet(`/orders/${orderId}/interruption-detail`)
+}
+
+export function handleCompensationDecision(data: { compensationId: number; decision: string; switchTargetPileId?: number }): Promise<any> {
+  return apiPost('/orders/compensation-decision', data)
+}

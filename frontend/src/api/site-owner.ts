@@ -32,3 +32,15 @@ export function getSiteOwnerSettlements(params?: Record<string, unknown>): Promi
 export function confirmSiteSettlement(id: number) {
   return apiPut(`/settlements/${id}/confirm`)
 }
+
+export function getOutageAffectedOrders(noticeId: number, stationId: number, startTime: string, endTime: string): Promise<any> {
+  return apiGet(`/outage-notices/${noticeId}/affected-orders`, { params: { stationId, startTime, endTime } })
+}
+
+export function activateOutage(noticeId: number): Promise<any> {
+  return apiPost(`/outage-notices/${noticeId}/activate`)
+}
+
+export function settleIncompleteOrders(noticeId: number): Promise<any> {
+  return apiPost(`/outage-notices/${noticeId}/settle`)
+}

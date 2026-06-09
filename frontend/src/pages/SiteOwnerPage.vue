@@ -91,9 +91,17 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100">
+          <el-table-column label="受影响订单" width="110">
             <template #default="{ row }">
+              <el-tag v-if="row.affectedOrderCount" type="warning" size="small">{{ row.affectedOrderCount }}单</el-tag>
+              <el-button v-else type="primary" text size="small" @click="viewAffectedOrders(row)">查看</el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="180">
+            <template #default="{ row }">
+              <el-button v-if="row.status === 'SCHEDULED'" type="primary" text size="small" @click="activateOutageNotice(row)">激活停电</el-button>
               <el-button v-if="row.status === 'SCHEDULED'" type="danger" text size="small" @click="cancelOutage(row)">取消</el-button>
+              <el-button v-if="row.status === 'ACTIVE'" type="success" text size="small" @click="settleIncompleteOrders(row.id); loadOutages()">结算</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -127,6 +135,29 @@
       </el-tab-pane>
     </el-tabs>
 
+    <el-dialog v-model="showAffectedDialog" title="停电受影响订单" width="600px">
+      <el-table :data="affectedOrders" stripe>
+        <el-table-column prop="orderNo" label="订单号" width="160" />
+        <el-table-column label="已充电量" width="120">
+          <template #default="{ row }">{{ row.chargedKwh?.toFixed(2) || '0.00' }} kWh</template>
+        </el-table-column>
+        <el-table-column label="当前费用" width="120">
+          <template #default="{ row }">¥{{ row.totalFee?.toFixed(2) || '0.00' }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'CHARGING' ? 'danger' : 'warning'" size="small">{{ row.status === 'CHARGING' ? '充电中' : '已中断' }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="mt-4 p-3 bg-amber-50 border border-amber-100 rounded-lg">
+        <div class="text-sm text-amber-700">停电后，这些正在充电的订单将按实际电量结算。激活停电后，受影响订单会自动中断并结算。</div>
+      </div>
+      <template #footer>
+        <el-button @click="showAffectedDialog = false">关闭</el-button>
+        <el-button type="primary" :loading="settling" @click="settleOrders">按实际电量结算</el-button>
+      </template>
+    </el-dialog>
     <el-dialog v-model="outageDialogVisible" title="发布停电通知" width="500px">
       <el-form :model="outageForm" label-width="90px">
         <el-form-item label="站点">
@@ -156,8 +187,8 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { Plus } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
-import type { Station, MeterReading, SettlementRecord, PowerOutageNotice } from '@/types'
-import { getSiteOwnerStations, getMeterReadings, confirmMeterReading, getSiteOwnerSettlements, confirmSiteSettlement, getOutageNotices, createOutageNotice, cancelOutageNotice } from '@/api/site-owner'
+import type { Station, MeterReading, SettlementRecord, PowerOutageNotice, OutageAffectedOrder } from '@/types'
+import { getSiteOwnerStations, getMeterReadings, confirmMeterReading, getSiteOwnerSettlements, confirmSiteSettlement, getOutageNotices, createOutageNotice, cancelOutageNotice, getOutageAffectedOrders, activateOutage, settleIncompleteOrders } from '@/api/site-owner'
 
 const activeTab = ref('meter')
 const meterStationId = ref<number>()
@@ -174,6 +205,11 @@ const outageForm = reactive({
   endTime: '',
   reason: '',
 })
+
+const affectedOrders = ref<OutageAffectedOrder[]>([])
+const showAffectedDialog = ref(false)
+const currentOutageId = ref<number>(0)
+const settling = ref(false)
 
 const MOCK_STATIONS: Station[] = [
   { id: 1, name: '朝阳万达站', address: '朝阳区建国路93号', longitude: 116.474, latitude: 39.908, totalPiles: 8, availablePiles: 3, status: 'ACTIVE', commissionRate: 15, createdAt: '2026-01-01' },
@@ -280,6 +316,45 @@ async function loadOutages() {
   } catch {
     outageNotices.value = MOCK_OUTAGES
   }
+}
+
+async function viewAffectedOrders(notice: PowerOutageNotice) {
+  currentOutageId.value = notice.id
+  try {
+    const data = await getOutageAffectedOrders(notice.id, notice.stationId, notice.startTime, notice.endTime)
+    affectedOrders.value = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : []
+  } catch {
+    affectedOrders.value = [
+      { orderId: 1, orderNo: 'ORD20260602001', userId: 6, chargedKwh: 12.5, totalFee: 10.0, status: 'CHARGING' },
+      { orderId: 2, orderNo: 'ORD20260602002', userId: 7, chargedKwh: 8.3, totalFee: 6.64, status: 'CHARGING' },
+    ]
+  }
+  showAffectedDialog.value = true
+}
+
+async function activateOutageNotice(notice: PowerOutageNotice) {
+  try {
+    await activateOutage(notice.id)
+    ElMessage.success('停电已激活，相关充电订单已中断')
+    loadOutages()
+  } catch {
+    notice.status = 'ACTIVE'
+    ElMessage.success('停电已激活(演示)')
+  }
+}
+
+async function settleOrders() {
+  settling.value = true
+  try {
+    await settleIncompleteOrders(currentOutageId.value)
+    ElMessage.success('未完成订单已按实际电量结算')
+    showAffectedDialog.value = false
+    loadOutages()
+  } catch {
+    ElMessage.success('结算完成(演示)')
+    showAffectedDialog.value = false
+  }
+  settling.value = false
 }
 
 onMounted(async () => {

@@ -1,6 +1,8 @@
 package com.charging.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.charging.dto.CompensationDecisionRequest;
+import com.charging.dto.InterruptionDetailDTO;
 import com.charging.dto.OrderCreateRequest;
 import com.charging.dto.OrderCompleteRequest;
 import com.charging.dto.OrderInterruptRequest;
@@ -21,6 +23,10 @@ public interface OrderService {
     ChargingOrder completeCharging(Long orderId, OrderCompleteRequest request);
 
     ChargingOrder interruptCharging(Long orderId, OrderInterruptRequest request);
+
+    InterruptionDetailDTO getInterruptionDetail(Long orderId);
+
+    ChargingOrder handleCompensationDecision(Long userId, CompensationDecisionRequest request);
 
     RefundRequest requestRefund(Long userId, RefundRequestDTO request);
 }

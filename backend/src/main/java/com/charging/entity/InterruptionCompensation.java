@@ -9,45 +9,37 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("charging_order")
-public class ChargingOrder {
+@TableName("interruption_compensation")
+public class InterruptionCompensation {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    private String orderNo;
+    private Long orderId;
 
     private Long userId;
 
-    private Long pileId;
-
     private Long stationId;
 
-    private String status;
-
-    private BigDecimal startKwh;
-
-    private BigDecimal endKwh;
+    private Long pileId;
 
     private BigDecimal chargedKwh;
 
-    private BigDecimal electricityFee;
+    private String stopReason;
 
-    private BigDecimal serviceFee;
+    private Integer waitingMinutes;
 
-    private BigDecimal totalFee;
+    private String switchablePiles;
 
-    private LocalDateTime startTime;
+    private String decision;
 
-    private LocalDateTime endTime;
+    private Long switchTargetPileId;
 
-    private String interruptReason;
-
-    private Long linkedOrderId;
-
-    private Long outageNoticeId;
+    private Long switchOrderId;
 
     private LocalDateTime createdAt;
+
+    private LocalDateTime decidedAt;
 
     private LocalDateTime updatedAt;
 }

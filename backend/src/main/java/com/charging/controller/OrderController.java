@@ -2,6 +2,8 @@ package com.charging.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.charging.common.Result;
+import com.charging.dto.CompensationDecisionRequest;
+import com.charging.dto.InterruptionDetailDTO;
 import com.charging.dto.OrderCompleteRequest;
 import com.charging.dto.OrderCreateRequest;
 import com.charging.dto.OrderInterruptRequest;
@@ -66,5 +68,17 @@ public class OrderController {
                                                 @Valid @RequestBody RefundRequestDTO request) {
         Long userId = (Long) authentication.getPrincipal();
         return Result.ok(orderService.requestRefund(userId, request));
+    }
+
+    @GetMapping("/{id}/interruption-detail")
+    public Result<InterruptionDetailDTO> getInterruptionDetail(@PathVariable Long id) {
+        return Result.ok(orderService.getInterruptionDetail(id));
+    }
+
+    @PostMapping("/compensation-decision")
+    public Result<ChargingOrder> handleCompensationDecision(Authentication authentication,
+                                                             @Valid @RequestBody CompensationDecisionRequest request) {
+        Long userId = (Long) authentication.getPrincipal();
+        return Result.ok(orderService.handleCompensationDecision(userId, request));
     }
 }
