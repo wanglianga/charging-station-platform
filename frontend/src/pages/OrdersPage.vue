@@ -109,14 +109,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import type { ChargingOrder, OrderStatus, OrderStatusChange } from '@/types'
 import { getOrders, requestRefund, approveRefund as approveRefundApi, rejectRefund as rejectRefundApi } from '@/api/order'
 import { useUserStore } from '@/stores/user'
+import { useChargingStore } from '@/stores/charging'
 
 const userStore = useUserStore()
+const chargingStore = useChargingStore()
 
 const filter = reactive({ status: '', dateRange: null as string[] | null })
 const orders = ref<ChargingOrder[]>([])
@@ -245,23 +247,19 @@ async function rejectRefund(order: ChargingOrder) {
 function updateLocalOrder(order: ChargingOrder) {
   const idx = orders.value.findIndex(o => o.id === order.id)
   if (idx >= 0) orders.value[idx] = { ...order }
-  try {
-    const key = 'charging_orders'
-    const existing: ChargingOrder[] = JSON.parse(localStorage.getItem(key) || '[]')
-    const localIdx = existing.findIndex(o => o.id === order.id)
-    if (localIdx >= 0) {
-      existing[localIdx] = { ...order }
-      localStorage.setItem(key, JSON.stringify(existing))
-    }
-  } catch { /* ignore */ }
+  chargingStore.saveOrderToList(order)
 }
 
-function loadLocalOrders(): ChargingOrder[] {
-  try {
-    return JSON.parse(localStorage.getItem('charging_orders') || '[]')
-  } catch {
-    return []
+function mergeActiveOrder(baseOrders: ChargingOrder[]): ChargingOrder[] {
+  const active = chargingStore.activeOrder
+  if (!active) return baseOrders
+  const idx = baseOrders.findIndex((o) => o.id === active.id)
+  if (idx >= 0) {
+    const merged = [...baseOrders]
+    merged[idx] = { ...active }
+    return merged
   }
+  return [active, ...baseOrders]
 }
 
 async function loadOrders() {
@@ -273,16 +271,17 @@ async function loadOrders() {
     apiOrders = []
   }
 
-  const localOrders = loadLocalOrders()
+  const localOrders = chargingStore.loadLocalOrders()
 
+  let baseOrders: ChargingOrder[]
   if (apiOrders.length > 0) {
     const apiIds = new Set(apiOrders.map(o => o.id))
-    const merged = [...localOrders.filter(o => !apiIds.has(o.id)), ...apiOrders]
-    orders.value = merged
+    baseOrders = [...localOrders.filter(o => !apiIds.has(o.id)), ...apiOrders]
   } else {
-    const merged = [...localOrders, ...MOCK_ORDERS.filter(mo => !localOrders.find(lo => lo.id === mo.id))]
-    orders.value = merged
+    baseOrders = [...localOrders, ...MOCK_ORDERS.filter(mo => !localOrders.find(lo => lo.id === mo.id))]
   }
+
+  orders.value = mergeActiveOrder(baseOrders)
 
   orders.value.sort((a, b) => {
     const statusOrder: Record<string, number> = { PENDING: 0, HANDSHAKE: 1, CHARGING: 2, INTERRUPTED: 3, FAULT_INTERRUPT: 4, OFFLINE_INTERRUPT: 5, REFUNDING: 6, COMPLETED: 7, REFUNDED: 8 }
@@ -292,6 +291,10 @@ async function loadOrders() {
     return (b.startTime || b.createdAt || '').localeCompare(a.startTime || a.createdAt || '')
   })
 }
+
+watch(() => chargingStore.activeOrder, () => {
+  loadOrders()
+}, { deep: true })
 
 onMounted(() => {
   loadOrders()

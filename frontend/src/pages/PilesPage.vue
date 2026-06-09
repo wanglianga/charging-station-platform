@@ -90,16 +90,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import type { Station, Pile, PileStatus, PileType, ChargingOrder, QueueInfo } from '@/types'
 import { getStations } from '@/api/station'
 import { getPilesByStation } from '@/api/pile'
+import { useChargingStore } from '@/stores/charging'
 
+const chargingStore = useChargingStore()
 const selectedStationId = ref<number>()
-const stationList = ref<Station[]>([])
-const piles = ref<Pile[]>([])
+const rawStationList = ref<Station[]>([])
+const rawPiles = ref<Pile[]>([])
 const drawerVisible = ref(false)
 const selectedPile = ref<Pile | null>(null)
+
+const stationList = computed(() => chargingStore.applyStationOverrides(rawStationList.value))
+const piles = computed(() => chargingStore.applyPileOverrides(rawPiles.value))
 
 const queueInfo = computed<QueueInfo | null>(() => {
   const station = stationList.value.find(s => s.id === selectedStationId.value)
@@ -158,18 +163,18 @@ async function loadPiles() {
   if (!selectedStationId.value) return
   try {
     const data = await getPilesByStation(selectedStationId.value)
-    piles.value = Array.isArray(data) ? data : MOCK_PILES
+    rawPiles.value = Array.isArray(data) ? data : MOCK_PILES
   } catch {
-    piles.value = MOCK_PILES
+    rawPiles.value = MOCK_PILES
   }
 }
 
 onMounted(async () => {
   try {
     const data = await getStations()
-    stationList.value = Array.isArray(data) && data.length > 0 ? data : MOCK_STATIONS
+    rawStationList.value = Array.isArray(data) && data.length > 0 ? data : MOCK_STATIONS
   } catch {
-    stationList.value = MOCK_STATIONS
+    rawStationList.value = MOCK_STATIONS
   }
   if (stationList.value.length > 0) {
     selectedStationId.value = stationList.value[0].id

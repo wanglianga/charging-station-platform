@@ -12,7 +12,7 @@
           </el-button>
         </div>
         <el-select v-model="selectedStationId" placeholder="请选择充电站" class="w-full" size="large" @change="onStationChange">
-          <el-option v-for="s in stationList" :key="s.id" :label="`${s.name} (${s.availablePiles}/${s.totalPiles}空闲)`" :value="s.id" />
+          <el-option v-for="s in displayStationList" :key="s.id" :label="`${s.name} (${s.availablePiles}/${s.totalPiles}空闲)`" :value="s.id" />
         </el-select>
       </div>
 
@@ -35,7 +35,7 @@
             <div class="font-bold text-gray-800">{{ pile.pileCode }}</div>
             <div class="text-sm text-gray-500">{{ pile.power }}kW · {{ pileTypeLabel(pile.type) }}</div>
           </div>
-          <div v-if="idlePiles.length === 0 && allPiles.length > 0" class="col-span-4">
+          <div v-if="idlePiles.length === 0 && displayPiles.length > 0" class="col-span-4">
             <div class="text-center py-6 text-gray-500">
               <Users class="w-8 h-8 mx-auto mb-2 text-amber-500" />
               <p class="font-medium">当前无空闲桩位</p>
@@ -43,13 +43,13 @@
               <el-button type="warning" class="mt-3" @click="joinQueue">加入排队</el-button>
             </div>
           </div>
-          <el-empty v-if="allPiles.length === 0" description="暂无桩位数据" :image-size="40" />
+          <el-empty v-if="displayPiles.length === 0" description="暂无桩位数据" :image-size="40" />
         </div>
-        <div v-if="allPiles.length > idlePiles.length && idlePiles.length > 0" class="mt-4 pt-4 border-t border-gray-100">
+        <div v-if="displayPiles.length > idlePiles.length && idlePiles.length > 0" class="mt-4 pt-4 border-t border-gray-100">
           <div class="flex items-center gap-4 text-sm text-gray-500">
-            <span>充电中: {{ allPiles.filter(p => p.status === 'CHARGING').length }}</span>
-            <span>故障: {{ allPiles.filter(p => p.status === 'FAULT').length }}</span>
-            <span>离线: {{ allPiles.filter(p => p.status === 'OFFLINE').length }}</span>
+            <span>充电中: {{ displayPiles.filter(p => p.status === 'CHARGING').length }}</span>
+            <span>故障: {{ displayPiles.filter(p => p.status === 'FAULT').length }}</span>
+            <span>离线: {{ displayPiles.filter(p => p.status === 'OFFLINE').length }}</span>
             <span class="text-amber-600">排队: {{ stationQueueInfo?.waitingCount || 0 }} 人</span>
           </div>
         </div>
@@ -186,9 +186,11 @@ import type { Station, Pile, PileType, PricingRule, QueueInfo, OrderStatus } fro
 import { getStations } from '@/api/station'
 import { getPilesByStation } from '@/api/pile'
 import { startCharging as startChargingApi, stopCharging as stopChargingApi } from '@/api/order'
+import { useChargingStore } from '@/stores/charging'
 
 const route = useRoute()
 const router = useRouter()
+const chargingStore = useChargingStore()
 const selectedStationId = ref<number>()
 const selectedPileId = ref<number>()
 const chargingActive = ref(false)
@@ -196,8 +198,8 @@ const submitting = ref(false)
 const showQueueDrawer = ref(false)
 let chargingTimer: ReturnType<typeof setInterval> | null = null
 
-const stationList = ref<Station[]>([])
-const allPiles = ref<Pile[]>([])
+const rawStationList = ref<Station[]>([])
+const rawPiles = ref<Pile[]>([])
 const orderStatus = ref<OrderStatus>('PENDING')
 const currentOrderNo = ref('')
 const currentOrderId = ref(0)
@@ -232,11 +234,14 @@ const MOCK_PILES: Pile[] = [
   { id: 10, stationId: 1, pileCode: 'P-010', power: 120, type: 'DC_FAST', status: 'FAULT', createdAt: '2026-01-01' },
 ]
 
+const displayStationList = computed(() => chargingStore.applyStationOverrides(rawStationList.value))
+const displayPiles = computed(() => chargingStore.applyPileOverrides(rawPiles.value))
+
 const stationQueueInfo = computed<QueueInfo | null>(() => {
-  const station = stationList.value.find(s => s.id === selectedStationId.value)
+  const station = displayStationList.value.find(s => s.id === selectedStationId.value)
   if (!station) return null
-  const idle = allPiles.value.filter(p => p.status === 'IDLE').length
-  const charging = allPiles.value.filter(p => p.status === 'CHARGING').length
+  const idle = displayPiles.value.filter(p => p.status === 'IDLE').length
+  const charging = displayPiles.value.filter(p => p.status === 'CHARGING').length
   const waiting = Math.max(0, charging - idle)
   return {
     stationId: station.id,
@@ -244,7 +249,7 @@ const stationQueueInfo = computed<QueueInfo | null>(() => {
     waitingCount: waiting,
     estimatedWaitMinutes: waiting * 30,
     idlePileCount: idle,
-    totalPileCount: allPiles.value.length,
+    totalPileCount: displayPiles.value.length,
     queueItems: waiting > 0 ? Array.from({ length: Math.min(waiting, 3) }, (_, i) => ({
       id: i + 1, userId: 100 + i, userName: `用户${100 + i}`, stationId: station.id, pileType: 'DC_FAST' as PileType, position: i + 1, estimatedWaitMinutes: (i + 1) * 30, createdAt: dayjs().add(-i * 10, 'minute').format('YYYY-MM-DD HH:mm:ss'),
     })) : [],
@@ -253,7 +258,7 @@ const stationQueueInfo = computed<QueueInfo | null>(() => {
 
 const queueInfoList = ref<QueueInfo[]>([])
 
-const idlePiles = computed(() => allPiles.value.filter((p) => p.status === 'IDLE'))
+const idlePiles = computed(() => displayPiles.value.filter((p) => p.status === 'IDLE'))
 
 function pileTypeLabel(t: PileType) {
   const m: Record<string, string> = { DC_FAST: '直流快充', DC_SLOW: '直流慢充', AC_SLOW: '交流慢充' }
@@ -281,24 +286,47 @@ async function onStationChange() {
   if (!selectedStationId.value) return
   try {
     const data = await getPilesByStation(selectedStationId.value)
-    allPiles.value = Array.isArray(data) ? data : MOCK_PILES.filter(p => p.stationId === selectedStationId.value)
+    rawPiles.value = Array.isArray(data) ? data : MOCK_PILES.filter(p => p.stationId === selectedStationId.value)
   } catch {
-    allPiles.value = MOCK_PILES.filter(p => p.stationId === selectedStationId.value)
+    rawPiles.value = MOCK_PILES.filter(p => p.stationId === selectedStationId.value)
   }
 }
 
 async function startCharging() {
-  if (!selectedPileId.value) return
+  if (!selectedPileId.value || !selectedStationId.value) return
   submitting.value = true
+
+  let orderId = Date.now()
+  let orderNo = 'ORD' + dayjs().format('YYYYMMDDHHmmss')
+
   try {
     const result = await startChargingApi(selectedPileId.value)
     const order = result?.data || result
-    currentOrderId.value = order?.id || Date.now()
-    currentOrderNo.value = order?.orderNo || 'ORD' + dayjs().format('YYYYMMDDHHmmss')
-  } catch {
-    currentOrderId.value = Date.now()
-    currentOrderNo.value = 'ORD' + dayjs().format('YYYYMMDDHHmmss')
+    orderId = order?.id || orderId
+    orderNo = order?.orderNo || orderNo
+  } catch { /* demo fallback */ }
+
+  currentOrderId.value = orderId
+  currentOrderNo.value = orderNo
+
+  const newOrder = {
+    id: orderId,
+    orderNo,
+    userId: 0,
+    pileId: selectedPileId.value,
+    stationId: selectedStationId.value,
+    status: 'PENDING' as OrderStatus,
+    startKwh: 0,
+    endKwh: 0,
+    chargedKwh: 0,
+    electricityFee: 0,
+    serviceFee: 0,
+    totalFee: 0,
+    startTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    createdAt: dayjs().format('YYYY-MM-DD'),
   }
+
+  chargingStore.startSession(newOrder, selectedPileId.value, selectedStationId.value)
 
   chargingActive.value = true
   statusChanges.value = []
@@ -308,22 +336,17 @@ async function startCharging() {
   setTimeout(() => {
     orderStatus.value = 'HANDSHAKE'
     addStatusChange('HANDSHAKE', '桩体通信握手')
+    chargingStore.updateOrderStatus('HANDSHAKE')
   }, 1000)
 
   setTimeout(() => {
     orderStatus.value = 'CHARGING'
     addStatusChange('CHARGING', '开始计量充电')
     chargingData.value = { chargedKwh: 0, totalFee: 0, duration: '00:00:00', progress: 0, startTime: Date.now() }
-    chargingTimer = setInterval(() => {
-      const elapsed = (Date.now() - chargingData.value.startTime) / 1000
-      const hours = Math.floor(elapsed / 3600)
-      const minutes = Math.floor((elapsed % 3600) / 60)
-      const seconds = Math.floor(elapsed % 60)
-      chargingData.value.duration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-      chargingData.value.chargedKwh += 0.15
-      chargingData.value.totalFee = chargingData.value.chargedKwh * 0.8
-      chargingData.value.progress = Math.min((chargingData.value.chargedKwh / 60) * 100, 100)
-    }, 1000)
+    chargingStore.updateOrderStatus('CHARGING', {
+      startTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    })
+    startChargingTimer()
   }, 3000)
 
   submitting.value = false
@@ -331,12 +354,33 @@ async function startCharging() {
 }
 
 function cancelHandshake() {
+  chargingStore.cancelSession()
   chargingActive.value = false
   orderStatus.value = 'PENDING'
   statusChanges.value = []
   currentOrderNo.value = ''
   currentOrderId.value = 0
   ElMessage.info('已取消')
+}
+
+function startChargingTimer() {
+  if (chargingTimer) clearInterval(chargingTimer)
+  chargingTimer = setInterval(() => {
+    const elapsed = (Date.now() - chargingData.value.startTime) / 1000
+    const hours = Math.floor(elapsed / 3600)
+    const minutes = Math.floor((elapsed % 3600) / 60)
+    const seconds = Math.floor(elapsed % 60)
+    chargingData.value.duration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    chargingData.value.chargedKwh += 0.15
+    chargingData.value.totalFee = chargingData.value.chargedKwh * 0.8
+    chargingData.value.progress = Math.min((chargingData.value.chargedKwh / 60) * 100, 100)
+    chargingStore.updateChargingData(
+      chargingData.value.chargedKwh,
+      chargingData.value.chargedKwh * 0.7,
+      chargingData.value.chargedKwh * 0.1,
+      chargingData.value.totalFee,
+    )
+  }, 1000)
 }
 
 async function stopCharging() {
@@ -367,7 +411,8 @@ async function stopCharging() {
     endTime: dayjs().format('YYYY-MM-DD HH:mm:ss'),
     createdAt: dayjs().format('YYYY-MM-DD'),
   }
-  saveOrderToList(completedOrder)
+
+  chargingStore.endSession(completedOrder)
 
   setTimeout(() => {
     chargingActive.value = false
@@ -378,21 +423,19 @@ async function stopCharging() {
   }, 2000)
 }
 
-function saveOrderToList(order: any) {
-  try {
-    const key = 'charging_orders'
-    const existing = JSON.parse(localStorage.getItem(key) || '[]')
-    existing.unshift(order)
-    if (existing.length > 50) existing.length = 50
-    localStorage.setItem(key, JSON.stringify(existing))
-  } catch { /* ignore */ }
-}
-
 function loadQueueInfo() {
+  const stations = displayStationList.value
   const result: QueueInfo[] = []
-  for (const station of stationList.value) {
-    const idle = station.availablePiles
-    const charging = station.totalPiles - idle
+  for (const station of stations) {
+    const stationPiles = station.id === selectedStationId.value
+      ? displayPiles.value
+      : []
+    const idle = stationPiles.length > 0
+      ? stationPiles.filter(p => p.status === 'IDLE').length
+      : station.availablePiles
+    const charging = stationPiles.length > 0
+      ? stationPiles.filter(p => p.status === 'CHARGING').length
+      : station.totalPiles - station.availablePiles
     const waiting = Math.max(0, Math.floor(charging * 0.3))
     result.push({
       stationId: station.id,
@@ -422,20 +465,59 @@ function goCharging(stationId: number) {
 onMounted(async () => {
   try {
     const data = await getStations()
-    stationList.value = Array.isArray(data) && data.length > 0 ? data : MOCK_STATIONS
+    rawStationList.value = Array.isArray(data) && data.length > 0 ? data : MOCK_STATIONS
   } catch {
-    stationList.value = MOCK_STATIONS
+    rawStationList.value = MOCK_STATIONS
   }
-  const qStationId = route.query.stationId
-  if (qStationId) {
-    selectedStationId.value = Number(qStationId)
-    onStationChange()
-  }
-  if (route.query.showQueue === '1') {
-    showQueueDrawer.value = true
-    loadQueueInfo()
+
+  if (chargingStore.isCharging && chargingStore.activeOrder) {
+    restoreChargingSession()
+  } else {
+    const qStationId = route.query.stationId
+    if (qStationId) {
+      selectedStationId.value = Number(qStationId)
+      onStationChange()
+    }
+    if (route.query.showQueue === '1') {
+      showQueueDrawer.value = true
+      loadQueueInfo()
+    }
   }
 })
+
+function restoreChargingSession() {
+  const order = chargingStore.activeOrder!
+  const pileId = chargingStore.activePileId!
+  const stationId = chargingStore.activeStationId!
+
+  selectedStationId.value = stationId
+  selectedPileId.value = pileId
+  onStationChange()
+
+  currentOrderNo.value = order.orderNo
+  currentOrderId.value = order.id
+  orderStatus.value = order.status
+  chargingActive.value = true
+
+  if (order.chargedKwh > 0) {
+    chargingData.value.chargedKwh = order.chargedKwh
+    chargingData.value.totalFee = order.totalFee
+    chargingData.value.progress = Math.min(95, (order.chargedKwh / 60) * 100)
+  }
+
+  if (order.status === 'CHARGING') {
+    chargingData.value.startTime = order.startTime ? new Date(order.startTime).getTime() : Date.now()
+    startChargingTimer()
+  }
+
+  statusChanges.value = [
+    { time: order.startTime || order.createdAt, label: '已创建', desc: '订单已创建', type: 'primary' },
+    { time: order.startTime || order.createdAt, label: '握手中', desc: '桩体通信握手', type: 'warning' },
+  ]
+  if (order.status === 'CHARGING') {
+    statusChanges.value.push({ time: order.startTime || order.createdAt, label: '充电中', desc: '开始计量充电', type: 'success' })
+  }
+}
 
 onUnmounted(() => {
   if (chargingTimer) clearInterval(chargingTimer)

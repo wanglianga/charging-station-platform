@@ -39,14 +39,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import L from 'leaflet'
 import type { Station } from '@/types'
 import { getStations } from '@/api/station'
+import { useChargingStore } from '@/stores/charging'
 import 'leaflet/dist/leaflet.css'
 
 const router = useRouter()
+const chargingStore = useChargingStore()
 const mapContainer = ref<HTMLDivElement>()
 let map: L.Map | null = null
 const markers: L.Marker[] = []
@@ -65,7 +67,8 @@ const MOCK_STATIONS: Station[] = [
   { id: 5, name: '通州运河站', address: '通州区运河东大街', longitude: 116.662, latitude: 39.902, totalPiles: 8, availablePiles: 4, status: 'ACTIVE', siteOwnerName: '通州物业', commissionRate: 13, createdAt: '2026-03-15' },
 ]
 
-const stations = ref<Station[]>(MOCK_STATIONS)
+const rawStations = ref<Station[]>(MOCK_STATIONS)
+const stations = computed(() => chargingStore.applyStationOverrides(rawStations.value))
 
 function getStatusColor(station: Station): string {
   if (station.status === 'MAINTENANCE') return '#EF4444'
@@ -140,10 +143,14 @@ watch(filter, () => {
   renderMarkers(filteredStations())
 })
 
+watch(() => [chargingStore.stationAvailableOverrides, chargingStore.pileOverrides], () => {
+  renderMarkers(filteredStations())
+}, { deep: true })
+
 onMounted(async () => {
   try {
     const data = await getStations()
-    if (Array.isArray(data) && data.length > 0) stations.value = data
+    if (Array.isArray(data) && data.length > 0) rawStations.value = data
   } catch { /* use mock */ }
 
   if (mapContainer.value) {
