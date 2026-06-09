@@ -7,6 +7,18 @@
         <el-option v-for="s in stationList" :key="s.id" :label="s.name" :value="s.id" />
       </el-select>
       <el-tag type="info" size="large">总计 {{ piles.length }} 个桩位</el-tag>
+      <div class="flex-1"></div>
+      <div v-if="queueInfo" class="flex items-center gap-3">
+        <el-tag :type="queueInfo.idlePileCount > 0 ? 'success' : 'warning'" effect="plain">
+          空闲 {{ queueInfo.idlePileCount }}/{{ queueInfo.totalPileCount }}
+        </el-tag>
+        <el-tag :type="queueInfo.waitingCount > 0 ? 'warning' : 'success'" effect="plain">
+          排队 {{ queueInfo.waitingCount }} 人
+        </el-tag>
+        <el-tag v-if="queueInfo.waitingCount > 0" type="warning" effect="plain">
+          预计等待 {{ queueInfo.estimatedWaitMinutes }} 分钟
+        </el-tag>
+      </div>
     </div>
 
     <div class="grid grid-cols-4 gap-4">
@@ -78,8 +90,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import type { Station, Pile, PileStatus, PileType, ChargingOrder } from '@/types'
+import { ref, computed, onMounted } from 'vue'
+import type { Station, Pile, PileStatus, PileType, ChargingOrder, QueueInfo } from '@/types'
 import { getStations } from '@/api/station'
 import { getPilesByStation } from '@/api/pile'
 
@@ -88,6 +100,23 @@ const stationList = ref<Station[]>([])
 const piles = ref<Pile[]>([])
 const drawerVisible = ref(false)
 const selectedPile = ref<Pile | null>(null)
+
+const queueInfo = computed<QueueInfo | null>(() => {
+  const station = stationList.value.find(s => s.id === selectedStationId.value)
+  if (!station) return null
+  const idle = piles.value.filter(p => p.status === 'IDLE').length
+  const charging = piles.value.filter(p => p.status === 'CHARGING').length
+  const waiting = Math.max(0, Math.floor(charging * 0.3))
+  return {
+    stationId: station.id,
+    stationName: station.name,
+    waitingCount: waiting,
+    estimatedWaitMinutes: waiting * 30,
+    idlePileCount: idle,
+    totalPileCount: piles.value.length,
+    queueItems: [],
+  }
+})
 
 const MOCK_STATIONS: Station[] = [
   { id: 1, name: '朝阳万达站', address: '朝阳区建国路93号', longitude: 116.474, latitude: 39.908, totalPiles: 8, availablePiles: 3, status: 'ACTIVE', commissionRate: 15, createdAt: '2026-01-01' },

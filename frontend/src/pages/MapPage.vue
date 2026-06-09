@@ -92,13 +92,19 @@ function createMarker(station: Station): L.Marker {
 
   const marker = L.marker([station.latitude, station.longitude], { icon }).addTo(map!)
 
+  const queueCount = Math.max(0, Math.floor((station.totalPiles - station.availablePiles) * 0.3))
+  const waitMin = queueCount * 30
   const popupContent = `
-    <div style="min-width:200px;padding:4px;">
+    <div style="min-width:220px;padding:4px;">
       <h4 style="font-size:14px;font-weight:600;margin-bottom:8px;color:#0F766E;">${station.name}</h4>
       <p style="font-size:12px;color:#6B7280;margin-bottom:4px;">📍 ${station.address}</p>
       <p style="font-size:12px;color:#6B7280;margin-bottom:4px;">⚡ 空闲桩位: ${station.availablePiles}/${station.totalPiles}</p>
+      <p style="font-size:12px;color:${queueCount > 0 ? '#D97706' : '#10B981'};margin-bottom:4px;">👥 排队: ${queueCount}人${queueCount > 0 ? ' · 约' + waitMin + '分钟' : ' · 无需等待'}</p>
       <p style="font-size:12px;color:#6B7280;margin-bottom:8px;">📊 状态: ${getStatusText(station)}</p>
-      <button onclick="window.__mapNavCharging__(${station.id})" style="width:100%;padding:6px;background:#0F766E;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">去充电</button>
+      <div style="display:flex;gap:6px;">
+        <button onclick="window.__mapNavCharging__(${station.id})" style="flex:1;padding:6px;background:#0F766E;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">去充电</button>
+        <button onclick="window.__mapViewQueue__(${station.id})" style="flex:1;padding:6px;background:#F59E0B;color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;">查看排队</button>
+      </div>
     </div>
   `
   marker.bindPopup(popupContent)
@@ -107,6 +113,10 @@ function createMarker(station: Station): L.Marker {
 
 ;(window as any).__mapNavCharging__ = (stationId: number) => {
   router.push({ path: '/charging', query: { stationId: String(stationId) } })
+}
+
+;(window as any).__mapViewQueue__ = (stationId: number) => {
+  router.push({ path: '/charging', query: { stationId: String(stationId), showQueue: '1' } })
 }
 
 function renderMarkers(list: Station[]) {

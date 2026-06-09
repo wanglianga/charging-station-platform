@@ -5,15 +5,18 @@
     <div class="filter-bar">
       <el-select v-model="filter.status" placeholder="订单状态" clearable class="w-36">
         <el-option label="待确认" value="PENDING" />
+        <el-option label="握手中" value="HANDSHAKE" />
         <el-option label="充电中" value="CHARGING" />
         <el-option label="已完成" value="COMPLETED" />
         <el-option label="已中断" value="INTERRUPTED" />
         <el-option label="故障中断" value="FAULT_INTERRUPT" />
+        <el-option label="离线中断" value="OFFLINE_INTERRUPT" />
         <el-option label="退款中" value="REFUNDING" />
         <el-option label="已退款" value="REFUNDED" />
       </el-select>
       <el-date-picker v-model="filter.dateRange" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" />
       <el-button type="primary" @click="loadOrders">查询</el-button>
+      <el-button @click="loadOrders">刷新</el-button>
     </div>
 
     <div class="bg-white rounded-xl shadow-sm border border-gray-100">
@@ -33,7 +36,7 @@
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="orderStatusType(row.status)" size="small">{{ orderStatusLabel(row.status) }}</el-tag>
+            <el-tag :type="orderStatusType(row.status)" size="small" :effect="isNewOrder(row) ? 'dark' : 'light'">{{ orderStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="startTime" label="开始时间" width="160" />
@@ -43,7 +46,7 @@
         <el-table-column label="操作" width="200" fixed="right">
           <template #default="{ row }">
             <el-button text size="small" @click="openDetail(row)">详情</el-button>
-            <el-button v-if="userStore.isCarOwner && ['COMPLETED','INTERRUPTED','FAULT_INTERRUPT'].includes(row.status)" type="warning" text size="small" @click="openRefundDialog(row)">退款</el-button>
+            <el-button v-if="userStore.isCarOwner && ['COMPLETED','INTERRUPTED','FAULT_INTERRUPT','OFFLINE_INTERRUPT'].includes(row.status)" type="warning" text size="small" @click="openRefundDialog(row)">退款</el-button>
             <el-button v-if="userStore.isAdmin && row.status === 'REFUNDING'" type="success" text size="small" @click="approveRefund(row)">批准</el-button>
             <el-button v-if="userStore.isAdmin && row.status === 'REFUNDING'" type="danger" text size="small" @click="rejectRefund(row)">拒绝</el-button>
           </template>
@@ -51,9 +54,9 @@
       </el-table>
     </div>
 
-    <el-drawer v-model="detailVisible" title="订单详情" size="480px">
+    <el-drawer v-model="detailVisible" title="订单详情" size="500px">
       <template v-if="selectedOrder">
-        <el-descriptions :column="1" border>
+        <el-descriptions :column="1" border class="mb-5">
           <el-descriptions-item label="订单号">{{ selectedOrder.orderNo }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="orderStatusType(selectedOrder.status)" size="small">{{ orderStatusLabel(selectedOrder.status) }}</el-tag>
@@ -66,6 +69,25 @@
           <el-descriptions-item label="结束时间">{{ selectedOrder.endTime || '-' }}</el-descriptions-item>
           <el-descriptions-item v-if="selectedOrder.interruptReason" label="中断原因">{{ selectedOrder.interruptReason }}</el-descriptions-item>
         </el-descriptions>
+
+        <div class="bg-gray-50 rounded-xl p-4">
+          <h4 class="font-medium text-gray-700 mb-3">订单状态变化</h4>
+          <div class="space-y-3">
+            <div v-for="(step, idx) in getOrderTimeline(selectedOrder)" :key="idx" class="flex items-start gap-3">
+              <div class="flex flex-col items-center">
+                <div class="w-3 h-3 rounded-full mt-1" :class="idx === getOrderTimeline(selectedOrder).length - 1 ? 'bg-teal-500' : 'bg-gray-300'"></div>
+                <div v-if="idx < getOrderTimeline(selectedOrder).length - 1" class="w-0.5 h-6 bg-gray-200"></div>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <el-tag size="small" :type="step.type">{{ step.label }}</el-tag>
+                  <span class="text-xs text-gray-400">{{ step.time }}</span>
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ step.desc }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </template>
     </el-drawer>
 
@@ -87,9 +109,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import type { ChargingOrder, OrderStatus } from '@/types'
+import dayjs from 'dayjs'
+import type { ChargingOrder, OrderStatus, OrderStatusChange } from '@/types'
 import { getOrders, requestRefund, approveRefund as approveRefundApi, rejectRefund as rejectRefundApi } from '@/api/order'
 import { useUserStore } from '@/stores/user'
 
@@ -102,6 +125,7 @@ const refundDialogVisible = ref(false)
 const selectedOrder = ref<ChargingOrder | null>(null)
 const refundAmount = ref(0)
 const refundReason = ref('')
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const filteredOrders = computed(() => {
   let result = orders.value
@@ -123,8 +147,50 @@ function orderStatusLabel(s: OrderStatus) {
 }
 
 function orderStatusType(s: OrderStatus) {
-  const m: Record<string, string> = { PENDING: 'info', HANDSHAKE: 'info', CHARGING: '', COMPLETED: 'success', INTERRUPTED: 'warning', FAULT_INTERRUPT: 'danger', REFUNDING: 'warning', REFUNDED: 'info', OFFLINE_INTERRUPT: 'danger' }
+  const m: Record<string, string> = { PENDING: 'info', HANDSHAKE: '', CHARGING: '', COMPLETED: 'success', INTERRUPTED: 'warning', FAULT_INTERRUPT: 'danger', REFUNDING: 'warning', REFUNDED: 'info', OFFLINE_INTERRUPT: 'danger' }
   return m[s] || 'info'
+}
+
+function isNewOrder(order: ChargingOrder) {
+  return ['PENDING', 'HANDSHAKE', 'CHARGING'].includes(order.status)
+}
+
+function getOrderTimeline(order: ChargingOrder): { label: string; time: string; desc: string; type: string }[] {
+  const timeline: { label: string; time: string; desc: string; type: string }[] = []
+
+  if (order.startTime) {
+    timeline.push({ label: '已创建', time: order.createdAt || order.startTime, desc: '订单创建成功', type: 'info' })
+  }
+  if (order.status === 'HANDSHAKE' || ['CHARGING', 'COMPLETED', 'INTERRUPTED', 'FAULT_INTERRUPT', 'OFFLINE_INTERRUPT', 'REFUNDING', 'REFUNDED'].includes(order.status)) {
+    timeline.push({ label: '握手中', time: order.startTime || '', desc: '桩体通信握手', type: '' })
+  }
+  if (['CHARGING', 'COMPLETED', 'INTERRUPTED', 'FAULT_INTERRUPT', 'OFFLINE_INTERRUPT', 'REFUNDING', 'REFUNDED'].includes(order.status)) {
+    timeline.push({ label: '充电中', time: order.startTime || '', desc: `充电量 ${order.chargedKwh.toFixed(2)} kWh`, type: 'success' })
+  }
+  if (order.status === 'COMPLETED') {
+    timeline.push({ label: '已完成', time: order.endTime || '', desc: `总费用 ¥${order.totalFee.toFixed(2)}`, type: 'success' })
+  }
+  if (order.status === 'INTERRUPTED') {
+    timeline.push({ label: '已中断', time: order.endTime || '', desc: order.interruptReason || '充电中断', type: 'warning' })
+  }
+  if (order.status === 'FAULT_INTERRUPT') {
+    timeline.push({ label: '故障中断', time: order.endTime || '', desc: order.interruptReason || '设备故障', type: 'danger' })
+  }
+  if (order.status === 'OFFLINE_INTERRUPT') {
+    timeline.push({ label: '离线中断', time: order.endTime || '', desc: order.interruptReason || '通信离线', type: 'danger' })
+  }
+  if (order.status === 'REFUNDING') {
+    timeline.push({ label: '退款中', time: '', desc: '退款申请审核中', type: 'warning' })
+  }
+  if (order.status === 'REFUNDED') {
+    timeline.push({ label: '已退款', time: '', desc: '退款已完成', type: 'info' })
+  }
+
+  if (timeline.length === 0) {
+    timeline.push({ label: '待确认', time: order.createdAt || '', desc: '订单等待确认', type: 'info' })
+  }
+
+  return timeline
 }
 
 function openDetail(order: ChargingOrder) {
@@ -148,6 +214,7 @@ async function submitRefund() {
     loadOrders()
   } catch {
     selectedOrder.value.status = 'REFUNDING'
+    updateLocalOrder(selectedOrder.value)
     ElMessage.success('退款申请已提交(演示)')
     refundDialogVisible.value = false
   }
@@ -159,6 +226,7 @@ async function approveRefund(order: ChargingOrder) {
     loadOrders()
   } catch {
     order.status = 'REFUNDED'
+    updateLocalOrder(order)
     ElMessage.success('退款已批准(演示)')
   }
 }
@@ -169,18 +237,68 @@ async function rejectRefund(order: ChargingOrder) {
     loadOrders()
   } catch {
     order.status = 'COMPLETED'
+    updateLocalOrder(order)
     ElMessage.success('退款已拒绝(演示)')
   }
 }
 
-async function loadOrders() {
+function updateLocalOrder(order: ChargingOrder) {
+  const idx = orders.value.findIndex(o => o.id === order.id)
+  if (idx >= 0) orders.value[idx] = { ...order }
   try {
-    const data = await getOrders({ status: filter.status })
-    orders.value = Array.isArray(data?.records) ? data.records : MOCK_ORDERS
+    const key = 'charging_orders'
+    const existing: ChargingOrder[] = JSON.parse(localStorage.getItem(key) || '[]')
+    const localIdx = existing.findIndex(o => o.id === order.id)
+    if (localIdx >= 0) {
+      existing[localIdx] = { ...order }
+      localStorage.setItem(key, JSON.stringify(existing))
+    }
+  } catch { /* ignore */ }
+}
+
+function loadLocalOrders(): ChargingOrder[] {
+  try {
+    return JSON.parse(localStorage.getItem('charging_orders') || '[]')
   } catch {
-    orders.value = MOCK_ORDERS
+    return []
   }
 }
 
-onMounted(() => loadOrders())
+async function loadOrders() {
+  let apiOrders: ChargingOrder[] = []
+  try {
+    const data = await getOrders({ status: filter.status })
+    apiOrders = Array.isArray(data?.records) ? data.records : []
+  } catch {
+    apiOrders = []
+  }
+
+  const localOrders = loadLocalOrders()
+
+  if (apiOrders.length > 0) {
+    const apiIds = new Set(apiOrders.map(o => o.id))
+    const merged = [...localOrders.filter(o => !apiIds.has(o.id)), ...apiOrders]
+    orders.value = merged
+  } else {
+    const merged = [...localOrders, ...MOCK_ORDERS.filter(mo => !localOrders.find(lo => lo.id === mo.id))]
+    orders.value = merged
+  }
+
+  orders.value.sort((a, b) => {
+    const statusOrder: Record<string, number> = { PENDING: 0, HANDSHAKE: 1, CHARGING: 2, INTERRUPTED: 3, FAULT_INTERRUPT: 4, OFFLINE_INTERRUPT: 5, REFUNDING: 6, COMPLETED: 7, REFUNDED: 8 }
+    const sa = statusOrder[a.status] ?? 9
+    const sb = statusOrder[b.status] ?? 9
+    if (sa !== sb) return sa - sb
+    return (b.startTime || b.createdAt || '').localeCompare(a.startTime || a.createdAt || '')
+  })
+}
+
+onMounted(() => {
+  loadOrders()
+  refreshTimer = setInterval(() => loadOrders(), 15000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
 </script>

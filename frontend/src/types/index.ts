@@ -168,3 +168,30 @@ export interface RefundRequest {
   createdAt: string
   processedAt?: string
 }
+
+export interface QueueInfo {
+  stationId: number
+  stationName: string
+  waitingCount: number
+  estimatedWaitMinutes: number
+  idlePileCount: number
+  totalPileCount: number
+  queueItems: QueueItem[]
+}
+
+export interface QueueItem {
+  id: number
+  userId: number
+  userName: string
+  stationId: number
+  pileType: PileType
+  position: number
+  estimatedWaitMinutes: number
+  createdAt: string
+}
+
+export interface OrderStatusChange {
+  status: OrderStatus
+  time: string
+  description: string
+}
