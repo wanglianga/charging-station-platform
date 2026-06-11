@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Data
@@ -33,6 +34,24 @@ public class FaultTicket {
     private LocalDateTime assignedAt;
 
     private LocalDateTime resolvedAt;
+
+    private BigDecimal priorityScore;
+
+    private LocalDateTime estimatedRestoreTime;
+
+    private Integer faultPileCount;
+
+    private Integer waitingCarOwners;
+
+    private BigDecimal stationRevenue;
+
+    private String siteOwnerRequest;
+
+    private BigDecimal partsDistance;
+
+    private Long recommendedEngineerId;
+
+    private String recommendedRoute;
 
     private LocalDateTime updatedAt;
 }

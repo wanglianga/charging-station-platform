@@ -98,6 +98,15 @@ CREATE TABLE IF NOT EXISTS `fault_ticket` (
   `status` ENUM('PENDING','ASSIGNED','PROCESSING','RESOLVED','CLOSED') NOT NULL DEFAULT 'PENDING',
   `description` TEXT,
   `assigned_engineer_id` BIGINT,
+  `priority_score` DECIMAL(10,4) COMMENT '优先级评分',
+  `estimated_restore_time` DATETIME COMMENT '预计恢复时间',
+  `fault_pile_count` INT DEFAULT 0 COMMENT '故障桩数',
+  `waiting_car_owners` INT DEFAULT 0 COMMENT '排队车主数',
+  `station_revenue` DECIMAL(12,2) COMMENT '站点月收入',
+  `site_owner_request` VARCHAR(32) COMMENT '场地方要求(URGENT/HIGH/NORMAL)',
+  `parts_distance` DECIMAL(8,2) COMMENT '备件距离(km)',
+  `recommended_engineer_id` BIGINT COMMENT '推荐工程师ID',
+  `recommended_route` VARCHAR(512) COMMENT '推荐路线说明',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `assigned_at` DATETIME,
   `resolved_at` DATETIME,
@@ -106,7 +115,8 @@ CREATE TABLE IF NOT EXISTS `fault_ticket` (
   KEY `idx_station` (`station_id`),
   KEY `idx_pile` (`pile_id`),
   KEY `idx_engineer` (`assigned_engineer_id`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_priority` (`priority_score`)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS `settlement_record` (
@@ -197,6 +207,29 @@ CREATE TABLE IF NOT EXISTS `interruption_compensation` (
   KEY `idx_status` (`decision`)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS `meter_reconciliation` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `station_id` BIGINT NOT NULL COMMENT '站点ID',
+  `period` VARCHAR(20) NOT NULL COMMENT '对账周期(yyyy-MM)',
+  `start_date` DATE NOT NULL COMMENT '对账开始日期',
+  `end_date` DATE NOT NULL COMMENT '对账结束日期',
+  `total_meter_kwh` DECIMAL(12,4) NOT NULL COMMENT '总表读数(kWh)',
+  `sub_meter_total_kwh` DECIMAL(12,4) COMMENT '分表合计电量(kWh)',
+  `order_total_kwh` DECIMAL(12,4) COMMENT '订单电量合计(kWh)',
+  `difference_kwh` DECIMAL(12,4) COMMENT '差异电量(kWh)',
+  `difference_rate` DECIMAL(8,6) COMMENT '差异率',
+  `status` ENUM('NORMAL','PENDING_REVIEW','CONFIRMED','DISPUTED') NOT NULL DEFAULT 'NORMAL' COMMENT '对账状态',
+  `review_note` TEXT COMMENT '复核备注',
+  `loss_reason` VARCHAR(512) COMMENT '损耗原因(线路损耗/离线补录/人工抄表误差)',
+  `reviewed_by` BIGINT COMMENT '复核人ID',
+  `reviewed_at` DATETIME COMMENT '复核时间',
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_station_period` (`station_id`, `period`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB;
+
 -- Demo data: Users
 -- Passwords are BCrypt encoded for '123456'
 INSERT INTO `user` (`username`, `password`, `name`, `phone`, `role`) VALUES
@@ -275,3 +308,13 @@ INSERT INTO `refund_request` (`order_id`, `user_id`, `amount`, `reason`, `status
 
 INSERT INTO `interruption_compensation` (`order_id`, `user_id`, `station_id`, `pile_id`, `charged_kwh`, `stop_reason`, `waiting_minutes`, `switchable_piles`, `decision`, `created_at`) VALUES
 (3, 7, 1, 4, 15.3000, 'MODULE_OVER_TEMP', 25, '1,2', 'PENDING', '2026-06-03 11:45:00');
+
+-- Demo data: Meter Reconciliations
+INSERT INTO `meter_reconciliation` (`station_id`, `period`, `start_date`, `end_date`, `total_meter_kwh`, `sub_meter_total_kwh`, `order_total_kwh`, `difference_kwh`, `difference_rate`, `status`, `review_note`, `loss_reason`, `reviewed_by`, `reviewed_at`, `created_at`) VALUES
+(1, '2026-05', '2026-05-01', '2026-05-31', 40200.0000, 40080.5000, 40000.3000, 199.7000, 0.00497, 'NORMAL', NULL, NULL, NULL, NULL, '2026-06-01 10:30:00'),
+(2, '2026-05', '2026-05-01', '2026-05-31', 35600.0000, 33500.8000, 33450.2000, 2149.8000, 0.06039, 'PENDING_REVIEW', NULL, NULL, NULL, NULL, '2026-06-01 11:00:00'),
+(3, '2026-05', '2026-05-01', '2026-05-31', 28500.0000, 28420.5000, 28400.8000, 99.2000, 0.00348, 'CONFIRMED', '差异在合理范围内，确认通过', '正常线路损耗约0.35%', 1, '2026-06-02 09:30:00', '2026-06-01 11:30:00');
+
+-- Update Demo data: Fault Tickets with dispatch info
+UPDATE `fault_ticket` SET `priority_score` = 68.5000, `estimated_restore_time` = '2026-06-03 13:30:00', `fault_pile_count` = 1, `waiting_car_owners` = 3, `station_revenue` = 8560.50, `site_owner_request` = 'HIGH', `parts_distance` = 3.50, `recommended_engineer_id` = 3, `recommended_route` = '工程师[王强]预计15分钟后到达朝阳大悦城充电站，总修复时间约60分钟' WHERE `id` = 1;
+UPDATE `fault_ticket` SET `priority_score` = 82.3000, `estimated_restore_time` = NULL, `fault_pile_count` = 1, `waiting_car_owners` = 5, `station_revenue` = 12350.80, `site_owner_request` = 'URGENT', `parts_distance` = 8.20, `recommended_engineer_id` = NULL, `recommended_route` = NULL WHERE `id` = 2;

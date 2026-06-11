@@ -146,6 +146,8 @@ npm run dev
 
 ## API 接口一览
 
+### 基础接口
+
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | /api/auth/login | POST | 用户登录 |
@@ -157,14 +159,36 @@ npm run dev
 | /api/orders | GET/POST | 订单列表/创建 |
 | /api/orders/{id}/start | POST | 开始充电 |
 | /api/orders/{id}/stop | POST | 停止充电 |
-| /api/fault-tickets | GET/POST | 故障工单列表/创建 |
-| /api/fault-tickets/{id}/assign | PUT | 派单 |
-| /api/fault-tickets/{id}/resolve | PUT | 解决故障 |
-| /api/settlements | GET | 结算记录 |
+| /api/faults | GET/POST | 故障工单列表/创建 |
+| /api/faults/{id}/assign | PUT | 派单 |
+| /api/faults/{id}/resolve | PUT | 解决故障 |
+| /api/faults/{id}/close | PUT | 关闭故障工单 |
+| /api/settlements | GET/POST | 结算记录/计算 |
 | /api/settlements/{id}/confirm | PUT | 确认结算 |
 | /api/meter-readings | GET/POST | 抄表记录 |
 | /api/power-outages | GET/POST | 停电通知 |
 | /api/refund-requests | POST | 退款申请 |
+| /api/orders/{id}/interruption-detail | GET | 获取充电中断补偿详情 |
+| /api/orders/compensation-decision | POST | 车主提交补偿决定(继续/退款/换桩) |
+
+### 总表与分表差异核对接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| /api/meter-reconciliations | GET | 对账记录列表(支持按状态/站点/周期筛选) |
+| /api/meter-reconciliations/{id} | GET | 对账详情(含分表明细和订单明细) |
+| /api/meter-reconciliations | POST | 创建月度对账(自动计算差异) |
+| /api/meter-reconciliations/{id}/review | PUT | 复核差异(运营方说明损耗原因) |
+
+### 抢修优先级调度接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| /api/faults/dispatch/calculate | POST | 计算单个故障工单的优先级和工程师推荐 |
+| /api/faults/dispatch/batch | POST | 批量计算多故障工单的优先级排序 |
+| /api/faults/accept | POST | 工程师接单(设置预计恢复时间) |
+| /api/faults/{id}/recovery-status | GET | 获取单个故障的恢复状态(车主端) |
+| /api/faults/station/{stationId}/recovery-status | GET | 获取站点下所有故障恢复状态列表 |
 
 ## 注意事项
 

@@ -1,9 +1,10 @@
 package com.charging.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.charging.dto.FaultAssignRequest;
-import com.charging.dto.FaultTicketRequest;
+import com.charging.dto.*;
 import com.charging.entity.FaultTicket;
+
+import java.util.List;
 
 public interface FaultService {
 
@@ -18,4 +19,14 @@ public interface FaultService {
     FaultTicket resolveFault(Long id, String description);
 
     FaultTicket closeFault(Long id);
+
+    RepairDispatchResultDTO calculateDispatchPriority(RepairDispatchRequest request);
+
+    List<RepairDispatchResultDTO> batchCalculateDispatchPriority(List<Long> faultTicketIds);
+
+    FaultTicket acceptRepair(RepairAcceptRequest request);
+
+    FaultRecoveryStatusDTO getRecoveryStatus(Long faultTicketId);
+
+    List<FaultRecoveryStatusDTO> getStationRecoveryStatus(Long stationId);
 }
